@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>股票自选盯盘看板</title>
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+<style>
+:root{
+  --red:#d93026; --green:#1e8e3e; --bg:#0f1419; --card:#1a2129; --line:#2a323c;
+  --blue:#1a73e8; --amber:#f9a825; --txt:#e8eaed; --sub:#9aa0a6;
+}
+*{box-sizing:border-box;font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;}
+body{margin:0;background:var(--bg);color:var(--txt);padding:20px;max-width:1200px;margin:0 auto;}
+header{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:18px;}
+h1{font-size:22px;margin:0;}
+.status{font-size:12px;color:var(--sub);}
+.status b{color:var(--blue);}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px;}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;cursor:pointer;transition:.15s;}
+.card:hover{border-color:var(--blue);}
+.card .top{display:flex;justify-content:space-between;align-items:baseline;}
+.card .name{font-size:16px;font-weight:600;}
+.card .code{font-size:12px;color:var(--sub);margin-left:6px;}
+.card .price{font-size:26px;font-weight:700;margin:8px 0 2px;}
+.card .chg{font-size:13px;}
+.up{color:var(--red);}
+.down{color:var(--green);}
+.badge{display:inline-block;padding:3px 9px;border-radius:10px;font-size:12px;font-weight:600;margin-top:10px;}
+.b-danger{background:#3a1c1a;color:#ff6b5e;}
+.b-good{background:#173a23;color:#5fd98a;}
+.b-buy{background:#16314f;color:#6db0ff;}
+.b-hold{background:#2a323c;color:var(--sub);}
+.b-wait{background:#2a323c;color:var(--sub);}
+.b-warn{background:#3a2f12;color:#ffce6b;}
+.modal{position:fixed;inset:0;background:rgba(0,0,0,.7);display:none;padding:20px;overflow:auto;z-index:100;}
+.modal.show{display:block;}
+.modal-box{background:var(--card);border:1px solid var(--line);border-radius:14px;max-width:900px;margin:20px auto;padding:20px;}
+.modal-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;}
+.close{background:none;border:none;color:var(--sub);font-size:24px;cursor:pointer;}
+.chart{width:100%;height:300px;margin-bottom:14px;}
+.kpis{display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:10px;margin:14px 0;}
+.kpi{background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:10px;font-size:12px;color:var(--sub);}
+.kpi b{display:block;font-size:15px;margin-top:3px;color:var(--txt);}
+.note{font-size:13px;color:var(--sub);line-height:1.7;}
+.foot{font-size:11px;color:#5f6368;margin-top:24px;border-top:1px solid var(--line);padding-top:12px;}
+</style>
+</head>
+<body>
+<header>
+  <h1>📈 股票自选盯盘看板</h1>
+  <div class="status">最后刷新：<b id="ts">--</b> ｜ 自动刷新：每 <b id="iv">3</b> 分钟</div>
+</header>
+<div class="grid" id="grid"></div>
+<div class="modal" id="modal">
+  <div class="modal-box">
+    <div class="modal-head">
+      <h2 id="m-title" style="margin:0;"></h2>
+      <button class="close" onclick="closeModal()">×</button>
+    </div>
+    <div id="m-advice"></div>
+    <div class="kpis" id="m-kpis"></div>
+    <div class="chart" id="m-trend"></div>
+    <div class="chart" id="m-kline"></div>
+    <div class="note" id="m-note"></div>
+  </div>
+</div>
+<div class="foot">数据：腾讯行情（实时）+ 东方财富（日K/分时）。纯前端，每3分钟自动刷新。颜色：涨=红 跌=绿。非买卖建议，仅供参考。</div>
+<script>
+const RED='#d93026', GREEN='#1e8e3e';
+let STOCKS=[], currentDetail=null, timer=null;
+const $=id=>document.getElementById(id);
+
+function loadQuoteP(s){return new Promise(res=>{
+  const vn='v_'+s.market+s.code;
+  const sc=document.createElement('script');
+  sc.src=`https://qt.gtimg.cn/q=${s.market}${s.code}?_=${Date.now()}`;
+  sc.onload=()=>{try{const raw=window[vn];if(raw){const f=raw.split('~');res({price:parseFloat(f[3]),prev:parseFloat(f[4]),pct:parseFloat(f[32]),high:parseFloat(f[33]),low:parseFloat(f[34])});}else res(null);}catch(e){res(null);}sc.remove();};
+  sc.onerror=()=>{res(null);sc.remove();};
+  document.head.appendChild(sc);
+});}
+async function loadDaily(secid){try{
+  const u=`https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=${secid}&klt=101&fqt=0&lmt=320&fields1=f1,f2,f3&fields2=f51,f52,f53,f54,f55,f56&_=${Date.now()}`;
+  const j=await (await fetch(u)).json();
+  return j.data?j.data.klines:[];
+}catch(e){return [];}}
+async function loadTrend(secid){try{
+  const u=`https://push2his.eastmoney.com/api/qt/stock/trends2/get?secid=${secid}&ndays=1&fields1=f1,f2,f3,f4,f5&fields2=f51,f52,f53,f54,f55,f56,f57,f58&_=${Date.now()}`;
+  const j=await (await fetch(u)).json();
+  return j.data?j.data.trends:[];
+}catch(e){return [];}}
+
+function MA(c,n){const r=[];for(let i=0;i<c.length;i++){if(i<n-1){r.push(null);continue;}let s=0;for(let j=i-n+1;j<=i;j++)s+=c[j];r.push(+(s/n).toFixed(2));}return r;}
+function EMA(c,n){const k=2/(n+1),r=[];let prev;for(let i=0;i<c.length;i++){if(i===0)prev=c[0];else prev=c[i]*k+prev*(1-k);r.push(+prev.toFixed(3));}return r;}
+function MACD(c){const e12=EMA(c,12),e26=EMA(c,26);const dif=e12.map((v,i)=>+(v-e26[i]).toFixed(3));const dea=EMA(dif,9);const bar=dif.map((v,i)=>+((v-dea[i])*2).toFixed(3));return {dif,dea,bar};}
+function RSI(c,n=14){const r=[];let g=0,l=0;for(let i=0;i<c.length;i++){if(i===0){r.push(null);continue;}const d=c[i]-c[i-1];const up=d>0?d:0,dn=d<0?-d:0;if(i<n){g+=up;l+=dn;r.push(i===n?+(100-100/(1+(g/n)/(l/n||1e-9))).toFixed(1):null);}else{g=(g*(n-1)+up)/n;l=(l*(n-1)+dn)/n;r.push(+(100-100/(1+(g/l||1e-9))).toFixed(1));}}return r;}
+function KDJ(c,n=9){const K=[],D=[],J=[];let pk=50,pd=50;for(let i=0;i<c.length;i++){if(i<n-1){K.push(null);D.push(null);J.push(null);continue;}let lo=Infinity,hi=-Infinity;for(let j=i-n+1;j<=i;j++){if(c[j]<lo)lo=c[j];if(c[j]>hi)hi=c[j];}const rv=hi===lo?50:(c[i]-lo)/(hi-lo)*100;pk=pk*2/3+rv/3;pd=pd*2/3+pk/3;K.push(+pk.toFixed(2));D.push(+pd.toFixed(2));J.push(+(3*pk-2*pd).toFixed(2));}return {K,D,J};}
+function calcInd(s){const c=s._daily.map(k=>parseFloat(k.split(',')[2]));return {c,ma5:MA(c,5),ma10:MA(c,10),ma20:MA(c,20),ma60:MA(c,60),macd:MACD(c),rsi:RSI(c,14),kdj:KDJ(c,9)};}
+
+function advice(s){const p=s._q?s._q.price:NaN;
+  if(isNaN(p))return {cls:'b-hold',txt:'行情加载中…'};
+  if(s.holding){
+    if(p<=s.stop)return {cls:'b-danger',txt:`🔴 止损预警：破 ${s.stop}，建议离场`};
+    if(s.target&&p>=s.target)return {cls:'b-good',txt:`🟢 已达目标 ${s.target}，考虑止盈`};
+    return {cls:'b-hold',txt:`持有观察（止损 ${s.stop} / 目标 ${s.target}）`};
+  }else{
+    if(s.buyZone){
+      if(p>=s.buyZone[0]&&p<=s.buyZone[1])return {cls:'b-buy',txt:`🔵 进入建仓区 ${s.buyZone[0]}~${s.buyZone[1]}，可分批买入`};
+      if(p>s.buyZone[1])return {cls:'b-hold',txt:`高于建仓区，等回落`};
+      if(p<=s.stop)return {cls:'b-danger',txt:`🔴 已破计划止损线 ${s.stop}，暂缓买入`};
+      return {cls:'b-wait',txt:`低于建仓区下沿 ${s.buyZone[0]}，等更低买点`};
+    }
+    if(s.target1&&p>=s.target1)return {cls:'b-warn',txt:`⚠️ 已超目标① ${s.target1}（未持仓，注意追高）`};
+    return {cls:'b-hold',txt:`观望`};
+  }
+}
+
+function renderCards(){const grid=$('grid');grid.innerHTML='';
+  STOCKS.forEach((s,idx)=>{const a=advice(s);const p=s._q?s._q.price:null;const pct=s._q?s._q.pct:null;const up=pct>=0;
+    const card=document.createElement('div');card.className='card';card.onclick=()=>openModal(idx);
+    let extra='';
+    if(s.holding&&p!=null){const pl=(p-s.cost)*s.shares;extra=`<div class="chg">成本 ${s.cost} ｜ 盈亏 <span class="${pl>=0?'up':'down'}">${pl>=0?'+':''}${pl.toFixed(0)} (${(pl/s.cost/s.shares*100).toFixed(2)}%)</span></div>`;}
+    else if(!s.holding&&s.buyZone){extra=`<div class="chg">建仓区 ${s.buyZone[0]}~${s.buyZone[1]}</div>`;}
+    card.innerHTML=`<div class="top"><div><span class="name">${s.name}</span><span class="code">${s.market.toUpperCase()}${s.code}</span></div><span class="badge ${a.cls}">${s.holding?'持仓':'自选'}</span></div>
+      <div class="price ${p==null?'':(up?'up':'down')}">${p==null?'--':p.toFixed(2)}</div>
+      <div class="chg ${up?'up':'down'}">${pct==null?'':(up?'+':'')+pct.toFixed(2)+'%'}</div>${extra}
+      <div class="badge ${a.cls}">${a.txt}</div>`;
+    grid.appendChild(card);
+  });
+}
+
+function drawTrend(s){const el=$('m-trend');if(el._chart)echarts.dispose(el._chart);
+  const chart=echarts.init(el);el._chart=chart;
+  const t=s._trend.map(x=>x.split(',')[0].slice(11));
+  const pr=s._trend.map(x=>parseFloat(x.split(',')[2]));
+  const av=s._trend.map(x=>parseFloat(x.split(',')[7]));
+  const color=(pr.length&&pr[pr.length-1]>=pr[0])?RED:GREEN;
+  chart.setOption({title:{text:'分时',left:'center',textStyle:{color:'#e8eaed',fontSize:13}},
+    grid:{left:50,right:15,top:35,bottom:25},
+    xAxis:{type:'category',data:t,axisLabel:{color:'#9aa0a6',interval:Math.floor(t.length/6)},axisLine:{lineStyle:{color:'#2a323c'}}},
+    yAxis:{type:'value',scale:true,axisLabel:{color:'#9aa0a6'},splitLine:{lineStyle:{color:'#1a2129'}}},
+    series:[{name:'价',type:'line',data:pr,showSymbol:false,lineStyle:{color,width:1.5},areaStyle:{color:color+'22'}},
+      {name:'均',type:'line',data:av,showSymbol:false,lineStyle:{color:'#f9a825',width:1}}]});
+}
+function drawK(s){const el=$('m-kline');if(el._chart)echarts.dispose(el._chart);
+  const chart=echarts.init(el);el._chart=chart;
+  const d=s._daily.map(k=>k.split(',')[0]);
+  const ohlc=s._daily.map(k=>{const f=k.split(',');return [+f[1],+f[2],+f[4],+f[3]];});
+  const ind=s._ind;
+  chart.setOption({title:{text:'日K (含MA)',left:'center',textStyle:{color:'#e8eaed',fontSize:13}},
+    grid:{left:50,right:15,top:35,bottom:25},
+    xAxis:{type:'category',data:d,axisLabel:{color:'#9aa0a6',interval:Math.floor(d.length/8)},axisLine:{lineStyle:{color:'#2a323c'}}},
+    yAxis:{scale:true,axisLabel:{color:'#9aa0a6'},splitLine:{lineStyle:{color:'#1a2129'}}},
+    dataZoom:[{type:'inside'},{type:'slider',height:15,bottom:5}],
+    series:[{type:'candlestick',data:ohlc,itemStyle:{color:RED,color0:GREEN,borderColor:RED,borderColor0:GREEN}},
+      {type:'line',data:ind.ma5,name:'MA5',showSymbol:false,lineStyle:{color:'#ff9f43',width:1}},
+      {type:'line',data:ind.ma10,name:'MA10',showSymbol:false,lineStyle:{color:'#54a0ff',width:1}},
+      {type:'line',data:ind.ma20,name:'MA20',showSymbol:false,lineStyle:{color:'#5fd98a',width:1}},
+      {type:'line',data:ind.ma60,name:'MA60',showSymbol:false,lineStyle:{color:'#c77dff',width:1}}]});
+}
+function openModal(idx){currentDetail=idx;const s=STOCKS[idx];
+  $('m-title').textContent=`${s.name} ${s.market.toUpperCase()}${s.code}`;
+  const a=advice(s);$('m-advice').innerHTML=`<div class="badge ${a.cls}" style="font-size:13px;padding:5px 12px;">${a.txt}</div>`;
+  const ind=s._ind,last=ind.c.length-1,macd=ind.macd,rsi=ind.rsi[last],kdj=ind.kdj;
+  let hold='';
+  if(s.holding){hold=`<div class="kpi">成本<b>${s.cost}</b></div><div class="kpi">止损<b style="color:${RED}">${s.stop}</b></div><div class="kpi">目标<b style="color:${GREEN}">${s.target}</b></div>`;}
+  else if(s.buyZone){hold=`<div class="kpi">建仓区<b>${s.buyZone[0]}~${s.buyZone[1]}</b></div><div class="kpi">止损<b style="color:${RED}">${s.stop}</b></div><div class="kpi">目标①<b>${s.target1}</b></div><div class="kpi">目标②<b>${s.target2}</b></div>`;}
+  $('m-kpis').innerHTML=`<div class="kpi">现价<b>${s._q?s._q.price.toFixed(2):'--'}</b></div><div class="kpi">MA20<b>${ind.ma20[last]||'--'}</b></div><div class="kpi">MA60<b>${ind.ma60[last]||'--'}</b></div><div class="kpi">MACD<b>${macd.bar[last]>=0?'+':''}${macd.bar[last]}</b></div><div class="kpi">RSI(14)<b>${rsi==null?'--':rsi}</b></div><div class="kpi">KDJ-J<b>${kdj.J[last]==null?'--':kdj.J[last]}</b></div>${hold}`;
+  $('m-note').innerHTML=note(s);
+  $('modal').classList.add('show');drawTrend(s);drawK(s);
+}
+function closeModal(){currentDetail=null;$('modal').classList.remove('show');}
+window.closeModal=closeModal;
+function note(s){const q=s._q;if(!q)return '行情加载中…';
+  let n=`最高 ${q.high} ｜ 最低 ${q.low} ｜ 昨收 ${q.prev}`;
+  if(s.holding)n+=`<br>持仓 ${s.shares}股，成本 ${s.cost}，现价 ${q.price}，止损 ${s.stop}，目标 ${s.target}。`;
+  else if(s.buyZone)n+=`<br>未持仓。建仓区 ${s.buyZone[0]}~${s.buyZone[1]}，止损 ${s.stop}，目标 ${s.target1}/${s.target2}。`;
+  return n;
+}
+
+async function refreshAll(){
+  for(const s of STOCKS){
+    const [q,d,t]=await Promise.all([loadQuoteP(s),loadDaily(s.secid),loadTrend(s.secid)]);
+    s._q=q;s._daily=d;s._trend=t;s._ind=calcInd(s);
+  }
+  renderCards();
+  if(currentDetail!=null)openModal(currentDetail);
+  $('ts').textContent=new Date().toLocaleString('zh-CN');
+}
+async function init(){
+  let cfg={stocks:[],refresh_sec:180};
+  try{cfg=await (await fetch('stock-data.json?_='+Date.now())).json();}catch(e){}
+  STOCKS=cfg.stocks;$('iv').textContent=(cfg.refresh_sec||180)/60;
+  await refreshAll();
+  if(timer)clearInterval(timer);
+  timer=setInterval(refreshAll,(cfg.refresh_sec||180)*1000);
+}
+init();
+</script>
+</body>
+</html>
