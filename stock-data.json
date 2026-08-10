@@ -1,0 +1,28 @@
+{
+  "updated": "2026-08-10",
+  "refresh_sec": 180,
+  "stocks": [
+    {
+      "code": "603993",
+      "market": "sh",
+      "name": "洛阳钼业",
+      "secid": "1.603993",
+      "holding": true,
+      "cost": 20.212,
+      "shares": 100,
+      "stop": 19.90,
+      "target": 21.65
+    },
+    {
+      "code": "600011",
+      "market": "sh",
+      "name": "华能国际",
+      "secid": "1.600011",
+      "holding": false,
+      "buyZone": [6.90, 7.05],
+      "stop": 6.70,
+      "target1": 7.55,
+      "target2": 8.00
+    }
+  ]
+}
