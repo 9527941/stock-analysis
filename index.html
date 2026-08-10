@@ -62,7 +62,16 @@ h1{font-size:22px;margin:0;}
   .flow-bar span{display:block;height:100%;border-radius:3px;}
   .rec-board{font-size:13px;color:var(--amber);font-weight:600;margin:16px 0 8px;display:none;}
   .rec-board .tag{font-size:11px;background:#2a323c;color:var(--sub);padding:2px 8px;border-radius:8px;font-weight:400;}
-  .rec-wrap-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(218px,1fr));gap:12px;}
+  .rec-group{margin-bottom:12px;}
+  .rec-head{display:flex;justify-content:space-between;align-items:center;cursor:pointer;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px 12px;user-select:none;transition:.15s;}
+  .rec-head:hover{border-color:var(--blue);}
+  .rec-head .bh-left{display:flex;align-items:center;gap:8px;}
+  .rec-head .bh-name{font-size:13px;font-weight:600;color:var(--amber);}
+  .rec-head .bh-tag{font-size:11px;background:#2a323c;color:var(--sub);padding:2px 8px;border-radius:8px;font-weight:400;}
+  .rec-head .bh-arrow{color:var(--sub);font-size:12px;transition:transform .2s;}
+  .rec-group.collapsed .bh-arrow{transform:rotate(-90deg);}
+  .rec-group.collapsed .rec-body{display:none;}
+  .rec-wrap-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(218px,1fr));gap:12px;margin-top:10px;}
   .rcard{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:11px 12px;}
   .rcard .top{display:flex;justify-content:space-between;align-items:baseline;}
   .rcard .name{font-size:14px;font-weight:600;}
@@ -297,15 +306,18 @@ function renderCards(){
 
 function renderRecs(){
   const wrap=$('recWrap'); if(!wrap)return; wrap.innerHTML='';
-  const g=document.createElement('div'); g.className='rec-wrap-grid';
   RECOMMEND.forEach(group=>{
+    const grp=document.createElement('div'); grp.className='rec-group';
+    const head=document.createElement('div'); head.className='rec-head';
+    head.innerHTML=`<div class="bh-left"><span class="bh-name">${group.board}</span><span class="bh-tag">${group.tag||''}</span></div><span class="bh-arrow">▾</span>`;
+    const body=document.createElement('div'); body.className='rec-body';
+    const g=document.createElement('div'); g.className='rec-wrap-grid';
     group.items.forEach(it=>{
       const q=it._q; const p=q?q.price:null; const pct=q?q.pct:null; const up=pct>=0;
       const card=document.createElement('div'); card.className='rcard';
       const priceStr=p==null?'--':(p<10?p.toFixed(3):p.toFixed(2));
       const plan=`建仓区 <b>${it.entry[0]}~${it.entry[1]}</b> ｜ 止损 <b>${it.stop}</b> ｜ 目标 <b>${it.target1}</b>/<b>${it.target2}</b>`;
-      card.innerHTML=`<div class="top"><div><span class="name">${it.name}</span><span class="code">${it.market.toUpperCase()}${it.code}</span></div></div>
-        <div class="top" style="margin-top:3px;"><span class="t-badge">${it.type}</span><span class="board-tag">${group.board}</span></div>
+      card.innerHTML=`<div class="top"><div><span class="name">${it.name}</span><span class="code">${it.market.toUpperCase()}${it.code}</span></div><span class="t-badge">${it.type}</span></div>
         <div class="price ${p==null?'':(up?'up':'down')}" style="margin-top:5px;">${priceStr}</div>
         <div class="chg ${up?'up':'down'}">${pct==null?'':(up?'+':'')+pct.toFixed(2)+'%'}</div>
         <div class="reason">${it.reason}</div>
@@ -313,8 +325,11 @@ function renderRecs(){
         <div class="hint">想纳入自选盯盘？把代码告诉我即可</div>`;
       g.appendChild(card);
     });
+    body.appendChild(g);
+    head.onclick=()=>grp.classList.toggle('collapsed');
+    grp.appendChild(head); grp.appendChild(body);
+    wrap.appendChild(grp);
   });
-  wrap.appendChild(g);
 }
 
 function drawTrend(s){
