@@ -59,7 +59,20 @@ h1{font-size:22px;margin:0;}
 .ai-title{font-size:14px;font-weight:600;color:#6db0ff;margin-bottom:8px;}
 .ai-text{font-size:13px;line-height:1.8;color:var(--txt);}
 .flow-bar{height:6px;border-radius:3px;background:var(--line);margin-top:6px;overflow:hidden;}
-.flow-bar span{display:block;height:100%;border-radius:3px;}
+  .flow-bar span{display:block;height:100%;border-radius:3px;}
+  .rec-board{font-size:13px;color:var(--amber);font-weight:600;margin:16px 0 8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;}
+  .rec-board .tag{font-size:11px;background:#2a323c;color:var(--sub);padding:2px 8px;border-radius:8px;font-weight:400;}
+  .rcard{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;}
+  .rcard .top{display:flex;justify-content:space-between;align-items:baseline;}
+  .rcard .name{font-size:15px;font-weight:600;}
+  .rcard .code{font-size:11px;color:var(--sub);margin-left:6px;}
+  .rcard .price{font-size:22px;font-weight:700;margin:6px 0 2px;}
+  .rcard .chg{font-size:12px;}
+  .t-badge{display:inline-block;padding:2px 8px;border-radius:8px;font-size:11px;border:1px solid var(--line);color:var(--sub);}
+  .rcard .reason{font-size:12px;color:var(--sub);line-height:1.6;margin:8px 0;}
+  .rcard .plan{font-size:12px;color:var(--txt);background:var(--bg);border-radius:8px;padding:8px 10px;line-height:1.8;}
+  .rcard .plan b{color:var(--amber);}
+  .rcard .hint{font-size:11px;color:#5f6368;margin-top:8px;}
 </style>
 </head>
 <body>
@@ -72,7 +85,10 @@ h1{font-size:22px;margin:0;}
 <div class="market-grid" id="marketGrid"></div>
 
 <div class="section-title">自选股票</div>
-<div class="grid" id="grid"></div>
+  <div class="grid" id="grid"></div>
+
+  <div class="section-title">🎯 短线推荐（按你相关板块）</div>
+  <div id="recWrap"></div>
 
 <div class="modal" id="modal">
   <div class="modal-box">
@@ -97,7 +113,7 @@ h1{font-size:22px;margin:0;}
 
 <script>
 const RED='#d93026', GREEN='#1e8e3e', AMBER='#f9a825', BLUE='#1a73e8';
-let STOCKS=[], MARKET={}, currentDetail=null, timer=null, detailTimer=null;
+let STOCKS=[], MARKET={}, RECOMMEND=[], currentDetail=null, timer=null, detailTimer=null;
 const $=id=>document.getElementById(id);
 
 function fmt(n,d=2){return n==null||isNaN(n)?'--':(+n).toFixed(d);}
@@ -277,6 +293,30 @@ function renderCards(){
   });
 }
 
+function renderRecs(){
+  const wrap=$('recWrap'); if(!wrap)return; wrap.innerHTML='';
+  RECOMMEND.forEach(group=>{
+    const bt=document.createElement('div'); bt.className='rec-board';
+    bt.innerHTML=`${group.board}<span class="tag">${group.tag||''}</span>`;
+    wrap.appendChild(bt);
+    const g=document.createElement('div'); g.className='grid';
+    group.items.forEach(it=>{
+      const q=it._q; const p=q?q.price:null; const pct=q?q.pct:null; const up=pct>=0;
+      const card=document.createElement('div'); card.className='rcard';
+      const priceStr=p==null?'--':(p<10?p.toFixed(3):p.toFixed(2));
+      const plan=`建仓区 <b>${it.entry[0]}~${it.entry[1]}</b> ｜ 止损 <b>${it.stop}</b> ｜ 目标 <b>${it.target1}</b>/<b>${it.target2}</b>`;
+      card.innerHTML=`<div class="top"><div><span class="name">${it.name}</span><span class="code">${it.market.toUpperCase()}${it.code}</span></div><span class="t-badge">${it.type}</span></div>
+        <div class="price ${p==null?'':(up?'up':'down')}">${priceStr}</div>
+        <div class="chg ${up?'up':'down'}">${pct==null?'':(up?'+':'')+pct.toFixed(2)+'%'}</div>
+        <div class="reason">${it.reason}</div>
+        <div class="plan">${plan}</div>
+        <div class="hint">想纳入自选盯盘？把代码告诉我即可</div>`;
+      g.appendChild(card);
+    });
+    wrap.appendChild(g);
+  });
+}
+
 function drawTrend(s){
   const el=$('m-trend');if(el._chart)echarts.dispose(el._chart);
   const chart=echarts.init(el);el._chart=chart;
@@ -404,6 +444,8 @@ async function refresh(){
     s._ind=calcInd(s);
   }
   renderCards();
+  await Promise.all(RECOMMEND.flatMap(g=>g.items.map(it=>loadQuoteP(it).then(q=>it._q=q))));
+  renderRecs();
   if(currentDetail){const idx=STOCKS.indexOf(currentDetail);if(idx>=0)openModal(idx);}
   const now=new Date();$('ts').innerText=now.toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
 }
@@ -414,6 +456,8 @@ async function init(){
     const cfg=await res.json();
     STOCKS=cfg.stocks||[];
     STOCKS._analysis=cfg.analysis||{};
+    RECOMMEND=cfg.recommend||[];
+    RECOMMEND.forEach(g=>g.items.forEach(it=>it._q=null));
   }catch(e){console.log('cfg err',e);}
   await refresh();
   timer=setInterval(refresh,180000);
