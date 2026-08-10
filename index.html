@@ -44,6 +44,7 @@ h1{font-size:22px;margin:0;}
 .kpi b{display:block;font-size:15px;margin-top:3px;color:var(--txt);}
 .note{font-size:13px;color:var(--sub);line-height:1.7;}
 .foot{font-size:11px;color:#5f6368;margin-top:24px;border-top:1px solid var(--line);padding-top:12px;}
+.errbox{background:#3a1c1a;color:#ff6b5e;padding:10px 14px;border-radius:8px;font-size:13px;margin:8px 0;}
 </style>
 </head>
 <body>
@@ -65,12 +66,13 @@ h1{font-size:22px;margin:0;}
     <div class="note" id="m-note"></div>
   </div>
 </div>
-<div class="foot">数据：腾讯行情（实时）+ 东方财富（日K/分时）。纯前端，每3分钟自动刷新。颜色：涨=红 跌=绿。非买卖建议，仅供参考。</div>
+<div class="foot">数据：腾讯行情（实时价）+ 新浪日K（每日更新）+ 东方财富分时（实时，受浏览器/网络限制）。纯前端，每3分钟自动刷新。颜色：涨=红 跌=绿。非买卖建议，仅供参考。</div>
 <script>
 const RED='#d93026', GREEN='#1e8e3e';
 let STOCKS=[], currentDetail=null, timer=null;
 const $=id=>document.getElementById(id);
 
+// 腾讯行情 JSONP（实时价，跨域OK）
 function loadQuoteP(s){return new Promise(res=>{
   const vn='v_'+s.market+s.code;
   const sc=document.createElement('script');
@@ -79,23 +81,61 @@ function loadQuoteP(s){return new Promise(res=>{
   sc.onerror=()=>{res(null);sc.remove();};
   document.head.appendChild(sc);
 });}
-async function loadDaily(secid){try{
-  const u=`https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=${secid}&klt=101&fqt=0&lmt=320&fields1=f1,f2,f3&fields2=f51,f52,f53,f54,f55,f56&_=${Date.now()}`;
-  const j=await (await fetch(u)).json();
-  return j.data?j.data.klines:[];
-}catch(e){return [];}}
+
+// 同域静态日K（新浪，每日由 GitHub Actions 更新）
+async function loadDailyStatic(s){
+  try{
+    const u=`data/daily/${s.market}${s.code}.json?_=${Date.now()}`;
+    const j=await (await fetch(u)).json();
+    if(!j.klines||!j.klines.length)return [];
+    // 转成统一格式 "date,open,close,high,low,volume"
+    return j.klines.map(k=>{
+      if(typeof k==='string'){
+        // 已是统一格式
+        const p=k.split(','); if(p.length>=6)return k;
+      }
+      // Sina JSON 对象 {day,open,high,low,close,volume}
+      return `${k.day},${k.open},${k.close},${k.high},${k.low},${k.volume}`;
+    });
+  }catch(e){return [];}
+}
+
+// 东方财富分时（trends2）。部分浏览器/网络可能因CORS拉不到，已做容错。
 async function loadTrend(secid){try{
   const u=`https://push2his.eastmoney.com/api/qt/stock/trends2/get?secid=${secid}&ndays=1&fields1=f1,f2,f3,f4,f5&fields2=f51,f52,f53,f54,f55,f56,f57,f58&_=${Date.now()}`;
   const j=await (await fetch(u)).json();
   return j.data?j.data.trends:[];
 }catch(e){return [];}}
 
+// 用分时数据更新/替换今日日K最后一根
+function mergeTodayDaily(daily,trend){
+  if(!daily.length||!trend.length)return daily;
+  const today=trend[0].split(',')[0].slice(0,10);
+  const bars=trend.filter(x=>x.startsWith(today));
+  if(!bars.length)return daily;
+  const opens=bars.map(x=>parseFloat(x.split(',')[1]));
+  const closes=bars.map(x=>parseFloat(x.split(',')[2]));
+  const highs=bars.map(x=>parseFloat(x.split(',')[3]));
+  const lows=bars.map(x=>parseFloat(x.split(',')[4]));
+  const vols=bars.map(x=>parseFloat(x.split(',')[5]));
+  const todayBar=`${today},${opens[0]},${closes[closes.length-1]},${Math.max(...highs)},${Math.min(...lows)},${vols.reduce((a,b)=>a+b,0)}`;
+  // 如果最后一根是同一天则替换，否则追加
+  const lastDate=daily[daily.length-1].split(',')[0];
+  const out=daily.slice();
+  if(lastDate===today)out[out.length-1]=todayBar; else out.push(todayBar);
+  return out;
+}
+
 function MA(c,n){const r=[];for(let i=0;i<c.length;i++){if(i<n-1){r.push(null);continue;}let s=0;for(let j=i-n+1;j<=i;j++)s+=c[j];r.push(+(s/n).toFixed(2));}return r;}
 function EMA(c,n){const k=2/(n+1),r=[];let prev;for(let i=0;i<c.length;i++){if(i===0)prev=c[0];else prev=c[i]*k+prev*(1-k);r.push(+prev.toFixed(3));}return r;}
 function MACD(c){const e12=EMA(c,12),e26=EMA(c,26);const dif=e12.map((v,i)=>+(v-e26[i]).toFixed(3));const dea=EMA(dif,9);const bar=dif.map((v,i)=>+((v-dea[i])*2).toFixed(3));return {dif,dea,bar};}
 function RSI(c,n=14){const r=[];let g=0,l=0;for(let i=0;i<c.length;i++){if(i===0){r.push(null);continue;}const d=c[i]-c[i-1];const up=d>0?d:0,dn=d<0?-d:0;if(i<n){g+=up;l+=dn;r.push(i===n?+(100-100/(1+(g/n)/(l/n||1e-9))).toFixed(1):null);}else{g=(g*(n-1)+up)/n;l=(l*(n-1)+dn)/n;r.push(+(100-100/(1+(g/l||1e-9))).toFixed(1));}}return r;}
 function KDJ(c,n=9){const K=[],D=[],J=[];let pk=50,pd=50;for(let i=0;i<c.length;i++){if(i<n-1){K.push(null);D.push(null);J.push(null);continue;}let lo=Infinity,hi=-Infinity;for(let j=i-n+1;j<=i;j++){if(c[j]<lo)lo=c[j];if(c[j]>hi)hi=c[j];}const rv=hi===lo?50:(c[i]-lo)/(hi-lo)*100;pk=pk*2/3+rv/3;pd=pd*2/3+pk/3;K.push(+pk.toFixed(2));D.push(+pd.toFixed(2));J.push(+(3*pk-2*pd).toFixed(2));}return {K,D,J};}
-function calcInd(s){const c=s._daily.map(k=>parseFloat(k.split(',')[2]));return {c,ma5:MA(c,5),ma10:MA(c,10),ma20:MA(c,20),ma60:MA(c,60),macd:MACD(c),rsi:RSI(c,14),kdj:KDJ(c,9)};}
+function calcInd(s){
+  if(!s._daily||!s._daily.length)return {c:[],ma5:[],ma10:[],ma20:[],ma60:[],macd:{dif:[],dea:[],bar:[]},rsi:[],kdj:{K:[],D:[],J:[]}};
+  const c=s._daily.map(k=>parseFloat(k.split(',')[2]));
+  return {c,ma5:MA(c,5),ma10:MA(c,10),ma20:MA(c,20),ma60:MA(c,60),macd:MACD(c),rsi:RSI(c,14),kdj:KDJ(c,9)};
+}
 
 function advice(s){const p=s._q?s._q.price:NaN;
   if(isNaN(p))return {cls:'b-hold',txt:'行情加载中…'};
@@ -131,6 +171,11 @@ function renderCards(){const grid=$('grid');grid.innerHTML='';
 
 function drawTrend(s){const el=$('m-trend');if(el._chart)echarts.dispose(el._chart);
   const chart=echarts.init(el);el._chart=chart;
+  if(!s._trend||!s._trend.length){
+    chart.setOption({title:{text:'分时（数据暂不可用）',left:'center',textStyle:{color:'#e8eaed',fontSize:13}},
+      graphic:{type:'text',left:'center',top:'middle',style:{text:'东方财富分时接口在当前网络下未能返回数据\n可刷新重试或检查浏览器是否拦截跨域请求',fill:'#9aa0a6',fontSize:13,textAlign:'center'}}},true);
+    return;
+  }
   const t=s._trend.map(x=>x.split(',')[0].slice(11));
   const pr=s._trend.map(x=>parseFloat(x.split(',')[2]));
   const av=s._trend.map(x=>parseFloat(x.split(',')[7]));
@@ -144,6 +189,11 @@ function drawTrend(s){const el=$('m-trend');if(el._chart)echarts.dispose(el._cha
 }
 function drawK(s){const el=$('m-kline');if(el._chart)echarts.dispose(el._chart);
   const chart=echarts.init(el);el._chart=chart;
+  if(!s._daily||!s._daily.length){
+    chart.setOption({title:{text:'日K (含MA)（数据暂不可用）',left:'center',textStyle:{color:'#e8eaed',fontSize:13}},
+      graphic:{type:'text',left:'center',top:'middle',style:{text:'日K数据加载失败\n请确认 data/daily/ 下静态文件存在',fill:'#9aa0a6',fontSize:13,textAlign:'center'}}},true);
+    return;
+  }
   const d=s._daily.map(k=>k.split(',')[0]);
   const ohlc=s._daily.map(k=>{const f=k.split(',');return [+f[1],+f[2],+f[4],+f[3]];});
   const ind=s._ind;
@@ -161,11 +211,12 @@ function drawK(s){const el=$('m-kline');if(el._chart)echarts.dispose(el._chart);
 function openModal(idx){currentDetail=idx;const s=STOCKS[idx];
   $('m-title').textContent=`${s.name} ${s.market.toUpperCase()}${s.code}`;
   const a=advice(s);$('m-advice').innerHTML=`<div class="badge ${a.cls}" style="font-size:13px;padding:5px 12px;">${a.txt}</div>`;
-  const ind=s._ind,last=ind.c.length-1,macd=ind.macd,rsi=ind.rsi[last],kdj=ind.kdj;
+  const ind=s._ind||{},last=(ind.c&&ind.c.length)?ind.c.length-1:0;
+  const macd=ind.macd||{bar:[]},rsi=ind.rsi||[],kdj=ind.kdj||{J:[]};
   let hold='';
   if(s.holding){hold=`<div class="kpi">成本<b>${s.cost}</b></div><div class="kpi">止损<b style="color:${RED}">${s.stop}</b></div><div class="kpi">目标<b style="color:${GREEN}">${s.target}</b></div>`;}
   else if(s.buyZone){hold=`<div class="kpi">建仓区<b>${s.buyZone[0]}~${s.buyZone[1]}</b></div><div class="kpi">止损<b style="color:${RED}">${s.stop}</b></div><div class="kpi">目标①<b>${s.target1}</b></div><div class="kpi">目标②<b>${s.target2}</b></div>`;}
-  $('m-kpis').innerHTML=`<div class="kpi">现价<b>${s._q?s._q.price.toFixed(2):'--'}</b></div><div class="kpi">MA20<b>${ind.ma20[last]||'--'}</b></div><div class="kpi">MA60<b>${ind.ma60[last]||'--'}</b></div><div class="kpi">MACD<b>${macd.bar[last]>=0?'+':''}${macd.bar[last]}</b></div><div class="kpi">RSI(14)<b>${rsi==null?'--':rsi}</b></div><div class="kpi">KDJ-J<b>${kdj.J[last]==null?'--':kdj.J[last]}</b></div>${hold}`;
+  $('m-kpis').innerHTML=`<div class="kpi">现价<b>${s._q?s._q.price.toFixed(2):'--'}</b></div><div class="kpi">MA20<b>${ind.ma20&&ind.ma20[last]!=null?ind.ma20[last]:'--'}</b></div><div class="kpi">MA60<b>${ind.ma60&&ind.ma60[last]!=null?ind.ma60[last]:'--'}</b></div><div class="kpi">MACD<b>${macd.bar[last]!=null?(macd.bar[last]>=0?'+':'')+macd.bar[last]:'--'}</b></div><div class="kpi">RSI(14)<b>${rsi[last]!=null?rsi[last]:'--'}</b></div><div class="kpi">KDJ-J<b>${kdj.J&&kdj.J[last]!=null?kdj.J[last]:'--'}</b></div>${hold}`;
   $('m-note').innerHTML=note(s);
   $('modal').classList.add('show');drawTrend(s);drawK(s);
 }
@@ -180,8 +231,11 @@ function note(s){const q=s._q;if(!q)return '行情加载中…';
 
 async function refreshAll(){
   for(const s of STOCKS){
-    const [q,d,t]=await Promise.all([loadQuoteP(s),loadDaily(s.secid),loadTrend(s.secid)]);
-    s._q=q;s._daily=d;s._trend=t;s._ind=calcInd(s);
+    const [q,d,t]=await Promise.all([loadQuoteP(s),loadDailyStatic(s),loadTrend(s.secid)]);
+    s._q=q;
+    s._daily=mergeTodayDaily(d,t);
+    s._trend=t;
+    s._ind=calcInd(s);
   }
   renderCards();
   if(currentDetail!=null)openModal(currentDetail);
