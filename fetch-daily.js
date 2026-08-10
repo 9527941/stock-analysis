@@ -20,16 +20,21 @@ async function fetchIndex(symbol) {
 }
 
 async function fetchSectors() {
-  // 东财行业板块涨幅前20
-  const url = 'http://push2.eastmoney.com/api/qt/clist/get?pn=1&pz=20&po=1&np=1&fltt=2&invt=2&fid=f3&fs=m:90+t:2&fields=f12,f13,f14,f3,f20,f21,f80,f81';
-  const r = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+  // 东财行业板块涨幅前20（沪深板块）
+  const url = 'https://push2.eastmoney.com/api/qt/clist/get?pn=1&pz=20&po=1&np=1&fltt=2&invt=2&fid=f3&fs=m:90+t:2&fields=f12,f13,f14,f3,f20,f21,f80,f81';
+  const r = await fetch(url, {
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+      'Accept': 'application/json, text/javascript, */*; q=0.01',
+      'Referer': 'https://quote.eastmoney.com/',
+    },
+  });
   const j = await r.json();
   if (!j.data || !j.data.diff) return [];
   return j.data.diff.map(d => ({
     code: d.f12,
     name: d.f14,
     chg: d.f3,
-    // f20 主力净流入，f21 主力净流出，f80 成交额，f81 换手率
   }));
 }
 
