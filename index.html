@@ -60,19 +60,21 @@ h1{font-size:22px;margin:0;}
 .ai-text{font-size:13px;line-height:1.8;color:var(--txt);}
 .flow-bar{height:6px;border-radius:3px;background:var(--line);margin-top:6px;overflow:hidden;}
   .flow-bar span{display:block;height:100%;border-radius:3px;}
-  .rec-board{font-size:13px;color:var(--amber);font-weight:600;margin:16px 0 8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;}
+  .rec-board{font-size:13px;color:var(--amber);font-weight:600;margin:16px 0 8px;display:none;}
   .rec-board .tag{font-size:11px;background:#2a323c;color:var(--sub);padding:2px 8px;border-radius:8px;font-weight:400;}
-  .rcard{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;}
+  .rec-wrap-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(218px,1fr));gap:12px;}
+  .rcard{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:11px 12px;}
   .rcard .top{display:flex;justify-content:space-between;align-items:baseline;}
-  .rcard .name{font-size:15px;font-weight:600;}
-  .rcard .code{font-size:11px;color:var(--sub);margin-left:6px;}
-  .rcard .price{font-size:22px;font-weight:700;margin:6px 0 2px;}
-  .rcard .chg{font-size:12px;}
-  .t-badge{display:inline-block;padding:2px 8px;border-radius:8px;font-size:11px;border:1px solid var(--line);color:var(--sub);}
-  .rcard .reason{font-size:12px;color:var(--sub);line-height:1.6;margin:8px 0;}
-  .rcard .plan{font-size:12px;color:var(--txt);background:var(--bg);border-radius:8px;padding:8px 10px;line-height:1.8;}
+  .rcard .name{font-size:14px;font-weight:600;}
+  .rcard .code{font-size:10px;color:var(--sub);margin-left:5px;}
+  .rcard .price{font-size:20px;font-weight:700;margin:4px 0 1px;}
+  .rcard .chg{font-size:11px;}
+  .t-badge{display:inline-block;padding:1px 7px;border-radius:7px;font-size:10px;border:1px solid var(--line);color:var(--sub);margin-top:2px;}
+  .rcard .board-tag{display:inline-block;padding:1px 7px;border-radius:7px;font-size:10px;background:#2a323c;color:var(--amber);margin-top:2px;font-weight:400;}
+  .rcard .reason{font-size:11px;color:var(--sub);line-height:1.5;margin:6px 0;}
+  .rcard .plan{font-size:11px;color:var(--txt);background:var(--bg);border-radius:7px;padding:6px 8px;line-height:1.65;}
   .rcard .plan b{color:var(--amber);}
-  .rcard .hint{font-size:11px;color:#5f6368;margin-top:8px;}
+  .rcard .hint{font-size:10px;color:#5f6368;margin-top:6px;}
 </style>
 </head>
 <body>
@@ -295,26 +297,24 @@ function renderCards(){
 
 function renderRecs(){
   const wrap=$('recWrap'); if(!wrap)return; wrap.innerHTML='';
+  const g=document.createElement('div'); g.className='rec-wrap-grid';
   RECOMMEND.forEach(group=>{
-    const bt=document.createElement('div'); bt.className='rec-board';
-    bt.innerHTML=`${group.board}<span class="tag">${group.tag||''}</span>`;
-    wrap.appendChild(bt);
-    const g=document.createElement('div'); g.className='grid';
     group.items.forEach(it=>{
       const q=it._q; const p=q?q.price:null; const pct=q?q.pct:null; const up=pct>=0;
       const card=document.createElement('div'); card.className='rcard';
       const priceStr=p==null?'--':(p<10?p.toFixed(3):p.toFixed(2));
       const plan=`建仓区 <b>${it.entry[0]}~${it.entry[1]}</b> ｜ 止损 <b>${it.stop}</b> ｜ 目标 <b>${it.target1}</b>/<b>${it.target2}</b>`;
-      card.innerHTML=`<div class="top"><div><span class="name">${it.name}</span><span class="code">${it.market.toUpperCase()}${it.code}</span></div><span class="t-badge">${it.type}</span></div>
-        <div class="price ${p==null?'':(up?'up':'down')}">${priceStr}</div>
+      card.innerHTML=`<div class="top"><div><span class="name">${it.name}</span><span class="code">${it.market.toUpperCase()}${it.code}</span></div></div>
+        <div class="top" style="margin-top:3px;"><span class="t-badge">${it.type}</span><span class="board-tag">${group.board}</span></div>
+        <div class="price ${p==null?'':(up?'up':'down')}" style="margin-top:5px;">${priceStr}</div>
         <div class="chg ${up?'up':'down'}">${pct==null?'':(up?'+':'')+pct.toFixed(2)+'%'}</div>
         <div class="reason">${it.reason}</div>
         <div class="plan">${plan}</div>
         <div class="hint">想纳入自选盯盘？把代码告诉我即可</div>`;
       g.appendChild(card);
     });
-    wrap.appendChild(g);
   });
+  wrap.appendChild(g);
 }
 
 function drawTrend(s){
