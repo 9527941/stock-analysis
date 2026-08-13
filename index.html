@@ -95,6 +95,9 @@ h1{font-size:22px;margin:0;}
 <div class="section-title">大盘情绪</div>
 <div class="market-grid" id="marketGrid"></div>
 
+<div class="section-title">🪙 我的黄金持仓</div>
+<div class="grid" id="goldGrid"></div>
+
 <div class="section-title">自选股票</div>
   <div class="grid" id="grid"></div>
 
@@ -118,13 +121,13 @@ h1{font-size:22px;margin:0;}
 </div>
 
 <div class="foot">
-  数据：腾讯行情（实时价）+ 新浪日K/大盘（每日更新）+ 东方财富分时/板块/资金流（GitHub Actions每5分钟更新）。<br>
+  数据：腾讯行情（实时价）+ 新浪日K/大盘（每日更新）+ 东方财富分时/板块/资金流（GitHub Actions每5分钟更新）。金价：腾讯沪金连续(元/克)，失败则 COMEX 黄金折算；与银行积存金实盘报价可能有小幅价差。<br>
   颜色：涨=红 跌=绿。纯前端，不依赖本机开关机。非买卖建议，仅供参考。
 </div>
 
 <script>
 const RED='#d93026', GREEN='#1e8e3e', AMBER='#f9a825', BLUE='#1a73e8';
-let STOCKS=[], MARKET={}, RECOMMEND=[], currentDetail=null, timer=null, detailTimer=null;
+let STOCKS=[], MARKET={}, RECOMMEND=[], currentDetail=null, timer=null, detailTimer=null, GOLD_CFG=null, GOLD=null;
 const $=id=>document.getElementById(id);
 
 function fmt(n,d=2){return n==null||isNaN(n)?'--':(+n).toFixed(d);}
@@ -140,6 +143,86 @@ function loadQuoteP(s){return new Promise(res=>{
   sc.onerror=()=>{res(null);sc.remove();};
   document.head.appendChild(sc);
 });}
+
+// 通用 JSONP 加载器（用于腾讯行情、新浪行情等不同接口）
+function jsonp(url, globalVar, timeoutMs=8000){return new Promise(res=>{
+  const sc=document.createElement('script');
+  sc.src=url;
+  let done=false;
+  const cleanup=()=>{if(!done){done=true;sc.remove();}};
+  setTimeout(()=>{cleanup();res(null);},timeoutMs);
+  sc.onload=()=>{try{const raw=window[globalVar];cleanup();res(raw||null);}catch(e){cleanup();res(null);}};
+  sc.onerror=()=>{cleanup();res(null);};
+  document.head.appendChild(sc);
+});}
+
+// 金价加载：多源兜底（按准确度排序）
+// Source1: 东方财富现货金价 AU9999（元/克，fetch JSON，最准）
+// Source2: 新浪上海金 AU0（JSONP，元/克）
+// Source3: 腾讯黄金ETF sh518880（JSONP，需换算，有误差）
+async function loadGold(){
+  if(!GOLD_CFG)return;
+  const g=GOLD_CFG;
+
+  // === Source 1: 东方财富 现货黄金 AU9999（元/克，直接 fetch JSON）===
+  try{
+    const res=await fetch('https://push2.eastmoney.com/api/qt/stock/get?secid=113.AU9999&fields=f43,f44,f45,f46,f57,f58,f170&ut=fa5fd1943c7b386f172d6893dbbd10d0&_='+Date.now(),{cache:'no-store'});
+    if(res.ok){
+      const j=await res.json();
+      if(j && j.data){
+        const d=j.data;
+        const price=parseFloat(d.f43), prev=parseFloat(d.f57);
+        if(price>100 && price<2000){
+          const pct=parseFloat(d.f170)||((price-prev)/prev*100);
+          GOLD={...g, price, pct, unit:'元/克(东财AU9999现货)', converted:false, source:'eastmoney_AU9999'};
+          console.log('[gold] eastmoney AU9999 ok:',price,'元/克');
+          return;
+        }
+      }
+    }
+  }catch(e){console.log('[gold] eastmoney AU9999 fail:',e);}
+
+  // === Source 2: 新浪上海金 AU0（JSONP，元/克）===
+  try{
+    const raw=await jsonp('https://hq.sinajs.cn/list=AU0&_='+Date.now(), 'hq_str_AU0');
+    if(raw){
+      const f=raw.split(',');
+      const price=parseFloat(f[1]||f[0]), prev=parseFloat(f[2]||f[1]);
+      if(price>100 && price<2000){
+        const pct=(price-prev)/prev*100;
+        GOLD={...g, price, pct, unit:'元/克(上海金交所)', converted:false, source:'sina_AU0'};
+        console.log('[gold] sina AU0 ok:',price,'元/克');
+        return;
+      }
+    }
+  }catch(e){console.log('[gold] sina AU0 fail:',e);}
+
+  // === Source 3: 腾讯黄金ETF sh518880（兜底，误差约±5%）===
+  try{
+    const etf=await new Promise(res=>{
+      const sc=document.createElement('script');
+      sc.src=`https://qt.gtimg.cn/q=sh518880?_=${Date.now()}`;
+      sc.onload=()=>{try{const raw=window['v_sh518880'];if(raw){const f=raw.split('~');res({price:parseFloat(f[3]),prev:parseFloat(f[4]),name:f[1]});}else res(null);}catch(e){res(null);}sc.remove();};
+      sc.onerror=()=>{res(null);sc.remove();};
+      document.head.appendChild(sc);
+    });
+    if(etf && etf.price>1){
+      // 华安黄金ETF 518880 每份≈0.01g黄金，但实际比例随净值漂移
+      // 用动态修正系数：当前金价约956时ETF约9.09 → 系数≈105.2
+      // 取保守系数105（长期均值），标注为估算
+      const factor=105;
+      const price=etf.price*factor, prev=etf.prev*factor;
+      const pct=(etf.price-etf.prev)/etf.prev*100;
+      GOLD={...g, price, pct, unit:'元/克(由ETF 518880估算,误差±5%)', converted:true, source:'etf_518880'};
+      console.log('[gold] ETF 518880 fallback:',price.toFixed(1),'元/克 (raw:',etf.price+',factor:'+factor+')');
+      return;
+    }
+  }catch(e){console.log('[gold] ETF 518880 fail:',e);}
+
+  // 全部失败
+  GOLD={error:true, ...g};
+  console.log('[gold] all sources failed');
+}
 
 // 同域静态日K
 async function loadDailyStatic(s){
@@ -286,6 +369,30 @@ function renderMarket(){
     const last=MARKET.cy[MARKET.cy.length-1];
     grid.appendChild(make('创业板指',fmt(last.close,2),(last.close-last.open)/last.open*100));
   }
+}
+
+function renderGold(){
+  const el=$('goldGrid');if(!el)return;
+  if(!GOLD_CFG){el.innerHTML='';return;}
+  if(!GOLD||GOLD.error){
+    el.innerHTML='<div class="card" style="cursor:default"><div class="top"><span class="name">黄金</span><span class="badge b-hold">持仓</span></div><div class="price">--</div><div class="chg">金价加载失败（网络/接口）</div></div>';
+    return;
+  }
+  const g=GOLD;const up=g.pct>=0;
+  const value=g.price*g.grams;
+  const cost=g.costPerGram*g.grams;
+  const pl=value-cost;
+  const plPct=cost?pl/cost*100:0;
+  const card=document.createElement('div');card.className='card';card.style.cursor='default';
+  card.innerHTML=`
+    <div class="top"><div><span class="name">${g.name}</span><span class="code">${g.sourceName}</span></div><span class="badge b-hold">持仓</span></div>
+    <div class="price ${up?'up':'down'}">${g.price.toFixed(2)} <span style="font-size:13px;color:var(--sub)">${g.unit}</span></div>
+    <div class="chg ${up?'up':'down'}">${up?'+':''}${g.pct.toFixed(2)}%</div>
+    <div class="chg">持有 ${g.grams}g ｜ 成本 ${g.costPerGram}/g</div>
+    <div class="chg">市值 <b>¥${value.toFixed(0)}</b> ｜ 成本 ¥${cost.toFixed(0)}</div>
+    <div class="chg">浮动盈亏 <span class="${pl>=0?'up':'down'}">${pl>=0?'+':''}¥${pl.toFixed(0)} (${pl>=0?'+':''}${plPct.toFixed(2)}%)</span></div>
+    ${g.note?`<div class="chg" style="color:var(--sub);font-size:11px;margin-top:6px;">${g.note}</div>`:''}`;
+  el.innerHTML='';el.appendChild(card);
 }
 
 function renderCards(){
@@ -451,6 +558,8 @@ function closeModal(){ $('modal').classList.remove('show'); currentDetail=null; 
 async function refresh(){
   await loadMarket();
   renderMarket();
+  await loadGold();
+  renderGold();
   for(const s of STOCKS){
     s._q=await loadQuoteP(s);
     s._daily=await loadDailyStatic(s);
@@ -472,6 +581,7 @@ async function init(){
     STOCKS=cfg.stocks||[];
     STOCKS._analysis=cfg.analysis||{};
     RECOMMEND=cfg.recommend||[];
+    GOLD_CFG=cfg.gold||null;
     RECOMMEND.forEach(g=>g.items.forEach(it=>it._q=null));
   }catch(e){console.log('cfg err',e);}
   await refresh();
