@@ -1,5 +1,5 @@
 {
-  "updated": "2026-08-14T10:16:44+08:00",
+  "updated": "2026-08-27T18:06:00+08:00",
   "stocks": [
     {
       "name": "洛阳钼业",
@@ -15,19 +15,6 @@
       "notes": "持仓200股，成本19.341(加仓100股加权均价)，保本止损19.90，目标21.65"
     },
     {
-      "name": "华能国际",
-      "code": "600011",
-      "market": "sh",
-      "holding": false,
-      "buyZone": [6.9, 7.05],
-      "stop": 6.7,
-      "target1": 7.55,
-      "target2": 8.0,
-      "sector": "电力",
-      "sectorCode": "BK0428",
-      "notes": "短线计划标的，建仓区6.90~7.05，硬止损6.70，目标7.55/8.00"
-    },
-    {
       "name": "国投电力",
       "code": "600886",
       "market": "sh",
@@ -39,6 +26,38 @@
       "sector": "电力",
       "sectorCode": "BK0428",
       "notes": "持仓300股，成本14.111(含费，挂单价14.07)，保本止损13.85，目标14.90(次目标15.20)"
+    },
+    {
+      "name": "科大讯飞",
+      "code": "002230",
+      "market": "sz",
+      "holding": false,
+      "sector": "人工智能",
+      "notes": "自选观察：AI应用龙头，纳入盯盘观察"
+    },
+    {
+      "name": "用友网络",
+      "code": "600588",
+      "market": "sh",
+      "holding": false,
+      "sector": "软件服务",
+      "notes": "自选观察：企业软件/ERP龙头，纳入盯盘观察"
+    },
+    {
+      "name": "ST兴化",
+      "code": "002109",
+      "market": "sz",
+      "holding": false,
+      "sector": "化工",
+      "notes": "自选观察：基础化工，ST标的（涨跌幅±5%限制），纳入盯盘观察"
+    },
+    {
+      "name": "工业富联",
+      "code": "601138",
+      "market": "sh",
+      "holding": false,
+      "sector": "电子/AI服务器",
+      "notes": "自选观察：AI服务器代工龙头，纳入盯盘观察"
     }
   ],
   "recommend": [
