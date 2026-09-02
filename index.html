@@ -84,6 +84,18 @@ h1{font-size:22px;margin:0;}
   .rcard .plan{font-size:11px;color:var(--txt);background:var(--bg);border-radius:7px;padding:6px 8px;line-height:1.65;}
   .rcard .plan b{color:var(--amber);}
   .rcard .hint{font-size:10px;color:#5f6368;margin-top:6px;}
+  .profit-summary{background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin-bottom:14px;}
+  .profit-summary .lbl{font-size:12px;color:var(--sub);}
+  .profit-summary .big{font-size:27px;font-weight:600;line-height:1.15;margin-top:2px;}
+  .profit-summary .mini{display:flex;gap:18px;margin-top:8px;font-size:12px;color:var(--sub);flex-wrap:wrap;}
+  .profit-summary .mini b{font-weight:500;}
+  .profit-cols{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+  @media(max-width:560px){.profit-cols{grid-template-columns:1fr;}}
+  .profit-col .col-h{font-size:13px;font-weight:500;margin:2px 0 8px;color:var(--txt);}
+  .profit-col .grid{display:grid;gap:12px;}
+  .badge.b-closed{background:#232a32;color:#9aa0a6;}
+  .pcard .chg{font-size:11px;}
+  .pcard .priceline{font-size:14px;font-weight:500;margin:2px 0 4px;}
 </style>
 </head>
 <body>
@@ -95,8 +107,8 @@ h1{font-size:22px;margin:0;}
 <div class="section-title">大盘情绪</div>
 <div class="market-grid" id="marketGrid"></div>
 
-<div class="section-title">🪙 我的黄金持仓</div>
-<div class="grid" id="goldGrid"></div>
+<div class="section-title">📊 我的收益总览</div>
+<div id="profitWrap"></div>
 
 <div class="section-title">自选股票</div>
   <div class="grid" id="grid"></div>
@@ -127,7 +139,7 @@ h1{font-size:22px;margin:0;}
 
 <script>
 const RED='#d93026', GREEN='#1e8e3e', AMBER='#f9a825', BLUE='#1a73e8';
-let STOCKS=[], MARKET={}, RECOMMEND=[], currentDetail=null, timer=null, detailTimer=null, GOLD_CFG=null, GOLD=null;
+let STOCKS=[], MARKET={}, RECOMMEND=[], currentDetail=null, timer=null, detailTimer=null, GOLD_CFG=null, GOLD=null, CLOSED_TRADES=[];
 const $=id=>document.getElementById(id);
 
 function fmt(n,d=2){return n==null||isNaN(n)?'--':(+n).toFixed(d);}
@@ -395,6 +407,81 @@ function renderGold(){
   el.innerHTML='';el.appendChild(card);
 }
 
+function renderProfit(){
+  const wrap=$('profitWrap');if(!wrap)return;
+  // ---- 持仓中（浮动盈亏）----
+  const holding=[];
+  let floatTotal=0, floatInvest=0;
+  for(const s of STOCKS){
+    if(!s.holding)continue;
+    const p=s._q?s._q.price:null;
+    const inv=s.cost*s.shares;floatInvest+=inv;
+    let pl=null,pct=null;
+    if(p!=null){pl=(p-s.cost)*s.shares;pct=pl/inv*100;floatTotal+=pl;}
+    holding.push({name:s.name,code:(s.market+s.code).toUpperCase(),shares:s.shares,unit:'股',cost:s.cost,price:p,pl,pct,inv,kind:'stock'});
+  }
+  // 黄金并入持仓
+  if(GOLD&&!GOLD.error){
+    const g=GOLD;const inv=g.costPerGram*g.grams;floatInvest+=inv;
+    const pl=(g.price-g.costPerGram)*g.grams;const pct=pl/inv*100;floatTotal+=pl;
+    holding.push({name:g.name,code:g.sourceName,shares:g.grams,unit:'g',cost:g.costPerGram,price:g.price,pl,pct,inv,kind:'gold'});
+  }
+  // ---- 已清仓（已实现盈亏）----
+  const closed=CLOSED_TRADES||[];
+  let realizedTotal=0,realizedInvest=0;
+  closed.forEach(c=>{realizedTotal+=(c.pnl||0);realizedInvest+=(c.buyCost*c.shares);});
+
+  // ---- 总收益 ----
+  const totalReturn=floatTotal+realizedTotal;
+  const totalInvest=floatInvest+realizedInvest;
+  const totalPct=totalInvest?totalReturn/totalInvest*100:0;
+  const tUp=totalReturn>=0;
+  const sign=tUp?'up':'down';
+
+  const fmtPct=v=>isNaN(v)?'--':(v>=0?'+':'')+v.toFixed(2)+'%';
+  const fmtP=v=>isNaN(v)||v==null?'--':(v>=0?'+':'')+'¥'+v.toFixed(0);
+
+  // 持仓卡片
+  const holdingCards=holding.length?holding.map(h=>{
+    const up=h.pl==null?true:h.pl>=0;
+    const cls=h.pl==null?'':(up?'up':'down');
+    const head=h.kind==='gold'?`${h.shares}g ｜ 成本 ¥${h.cost}/g`:`${h.shares}${h.unit} ｜ 成本 ¥${h.cost}`;
+    return `<div class="card pcard">
+      <div class="top"><div><span class="name">${h.name}</span><span class="code">${h.code}</span></div><span class="badge b-hold">持仓</span></div>
+      <div class="priceline ${cls}">${h.price==null?'现价 --':('现价 '+h.price.toFixed(2))}</div>
+      <div class="chg">${head}</div>
+      ${h.pl==null?'<div class="chg">行情加载中…</div>':`<div class="chg">浮动盈亏 <span class="${cls}">${fmtP(h.pl)} (${fmtPct(h.pct)})</span></div>`}
+      <div class="chg">占总投入 ${(h.inv/totalInvest*100).toFixed(1)}%</div>
+    </div>`;
+  }).join(''):'<div class="chg" style="color:var(--sub)">暂无持仓</div>';
+
+  // 已清仓卡片
+  const closedCards=closed.length?closed.map(c=>{
+    const pct=c.buyCost?c.pnl/(c.buyCost*c.shares)*100:0;
+    const up=c.pnl>=0;const cls=up?'up':'down';
+    return `<div class="card pcard">
+      <div class="top"><div><span class="name">${c.name}</span><span class="code">${(c.market+c.code).toUpperCase()}</span></div><span class="badge b-closed">已清仓</span></div>
+      <div class="priceline">卖出 ¥${c.sellPrice}（${c.sellDate}）</div>
+      <div class="chg">${c.shares}${c.shares>0&&c.shares%1===0?'股':'份'} ｜ 成本 ¥${c.buyCost}</div>
+      <div class="chg">已实现盈亏 <span class="${cls}">${fmtP(c.pnl)} (${fmtPct(pct)})</span></div>
+    </div>`;
+  }).join(''):'<div class="chg" style="color:var(--sub)">暂无清仓记录</div>';
+
+  wrap.innerHTML=`
+    <div class="profit-summary">
+      <div class="lbl">总收益（持仓浮动 + 已清仓实现）</div>
+      <div class="big ${sign}">${tUp?'+':''}¥${totalReturn.toFixed(0)} <span style="font-size:14px;color:var(--sub);">(${fmtPct(totalPct)})</span></div>
+      <div class="mini">
+        <span>持仓浮动：<b class="${floatTotal>=0?'up':'down'}">${fmtP(floatTotal)}</b></span>
+        <span>已清仓实现：<b class="${realizedTotal>=0?'up':'down'}">${fmtP(realizedTotal)}</b></span>
+      </div>
+    </div>
+    <div class="profit-cols">
+      <div class="profit-col"><div class="col-h">📌 持仓中</div><div class="grid">${holdingCards}</div></div>
+      <div class="profit-col"><div class="col-h">✅ 已清仓</div><div class="grid">${closedCards}</div></div>
+    </div>`;
+}
+
 function renderCards(){
   const grid=$('grid');grid.innerHTML='';
   STOCKS.forEach((s,idx)=>{const a=advice(s);const p=s._q?s._q.price:null;const pct=s._q?s._q.pct:null;const up=pct>=0;
@@ -559,7 +646,7 @@ async function refresh(){
   await loadMarket();
   renderMarket();
   await loadGold();
-  renderGold();
+  renderProfit();
   for(const s of STOCKS){
     s._q=await loadQuoteP(s);
     s._daily=await loadDailyStatic(s);
@@ -568,6 +655,7 @@ async function refresh(){
     s._ind=calcInd(s);
   }
   renderCards();
+  renderProfit();
   await Promise.all(RECOMMEND.flatMap(g=>g.items.map(it=>loadQuoteP(it).then(q=>it._q=q))));
   renderRecs();
   if(currentDetail){const idx=STOCKS.indexOf(currentDetail);if(idx>=0)openModal(idx);}
@@ -582,6 +670,7 @@ async function init(){
     STOCKS._analysis=cfg.analysis||{};
     RECOMMEND=cfg.recommend||[];
     GOLD_CFG=cfg.gold||null;
+    CLOSED_TRADES=cfg.closedTrades||[];
     RECOMMEND.forEach(g=>g.items.forEach(it=>it._q=null));
   }catch(e){console.log('cfg err',e);}
   await refresh();
